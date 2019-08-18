@@ -1,0 +1,11 @@
+version: "3"
+
+services:
+  preproc:
+    image: preproc:latest
+    container_name: 'preproc'
+    ports:
+      - "8888:8888"
+    volumes: 
+      - C:/Users/somd7w/Desktop/DL_Projects/preproc_cntr/preprocessed:/home/jovyan/data
+      - C:/Users/somd7w/Desktop/DL_Projects/output:/home/jovyan/output
