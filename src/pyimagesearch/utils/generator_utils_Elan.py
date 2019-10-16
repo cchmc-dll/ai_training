@@ -5,9 +5,9 @@ import itertools
 import cv2
 import numpy as np
 
-from unet3d.utils.utils import pickle_dump, pickle_load
-from unet3d.utils.patches import compute_patch_indices, get_random_nd_index, get_patch_from_3d_data
-from unet3d.augment import augment_data, random_permutation_x_y
+from src.unet3d.utils.utils import pickle_dump, pickle_load
+from src.unet3d.utils.patches import compute_patch_indices, get_random_nd_index, get_patch_from_3d_data
+from src.unet3d.augment import augment_data, random_permutation_x_y
 
 
 def get_number_of_steps(n_samples, batch_size):

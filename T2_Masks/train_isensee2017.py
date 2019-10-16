@@ -81,7 +81,7 @@ def main(overwrite=False):
 
     with open('isensemodel_original.txt','w') as fh:
         # Pass the file handle in as a lambda function to make it callable
-        model.summary(line_length=150,print_fn=lambda x: fh.write(x + '\n'))
+        model.summary(line_length=150, print_fn=lambda x: fh.write(x + '\n'))
     
     # Save Model
     plot_model(model,to_file="isensemodel_original.png",show_shapes=True)

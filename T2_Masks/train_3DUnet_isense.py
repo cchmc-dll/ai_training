@@ -81,7 +81,7 @@ def main(overwrite=False):
         base_model = load_old_model(config["model_file"])
         model = get_multiGPUmodel(base_model=base_model,initial_learning_rate=config["initial_learning_rate"],GPU=config["GPU"])
     else:
-        base_model,model = isensee2017_model_multiGPU(input_shape=config["input_shape"],
+        base_model, model = isensee2017_model_multiGPU(input_shape=config["input_shape"],
                               n_labels=config["n_labels"],
                               initial_learning_rate=config["initial_learning_rate"],
                               n_base_filters=config["n_base_filters"],GPU=config["GPU"])

@@ -1,5 +1,4 @@
-from  src.run_preprocess import *
+from  src.run_training import *
 
-file = '@preproc.args'
+file = '@training.args'
 main(file)
-

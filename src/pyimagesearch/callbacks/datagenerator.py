@@ -1,7 +1,7 @@
 import numpy as np
 import keras
 from keras.utils import np_utils
-from pyimagesearch.utils.generator_utils_Elan import convert_data, add_data_classify,add_data_segment_2D,add_data_segment
+from src.pyimagesearch.utils.generator_utils_Elan import convert_data, add_data_classify, add_data_segment_2D, add_data_segment
 from sklearn import preprocessing
 from keras.preprocessing.image import ImageDataGenerator
 
@@ -20,7 +20,6 @@ class DataGenerator_3D_Segmentation(keras.utils.Sequence):
         self.shuffle = shuffle_index_list
         self.skip_blank = skip_blank
         self.data_file = data_file
-        self.patch_shape = patch_shape
         self.patch_overlap = patch_overlap
         self.patch_offset = patch_start_offset
         self.permute = permute
