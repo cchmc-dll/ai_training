@@ -19,9 +19,7 @@ from keras.utils import np_utils
 from keras.utils import plot_model
 from keras.optimizers import SGD,Adam
 from .pyimagesearch.callbacks import TrainingMonitor
-from keras.callbacks import ModelCheckpoint
-from keras.callbacks import EarlyStopping
-from keras.callbacks import LearningRateScheduler
+from keras.callbacks import ModelCheckpoint, EarlyStopping, LearningRateScheduler, ReduceLROnPlateau, CSVLogger
 from keras.utils.training_utils import multi_gpu_model
 from alt_model_checkpoint import AltModelCheckpoint
 from imutils import paths
@@ -36,7 +34,6 @@ from keras.layers import concatenate
 from keras.layers.core import Dense
 from sklearn.model_selection import train_test_split
 from src.unet3d.metrics import weighted_dice_coefficient_loss
-
 # Tensorboard specific imports
 from time import time
 from tensorflow.python.keras.callbacks import TensorBoard
@@ -104,6 +101,10 @@ def parse_command_line_arguments():
         type=int,
         help='Enter the number of classes for classification problems')
     parser.add_argument(
+        '--labels',
+        default='1',
+        help='Enter the  label indices for segmentation problems')
+    parser.add_argument(
         '--patch_shape',
         default=None,
         help='Enter patch shape for patch wise training, set to None for whole image training')
@@ -155,8 +156,7 @@ def parse_command_line_arguments():
 
 
 def build_config_dict(config):
-   # config["labels"] = tuple(config['labels'].split(','))  # the label numbers on the input image
-   # config["n_labels"] = len(config["labels"])
+ 
 
 
     # calculated values from cmdline_args
@@ -164,8 +164,52 @@ def build_config_dict(config):
 
     config["image_shape"] = map(int, (config['image_shape'].split(',')))
     config["image_shape"] = tuple(list(config["image_shape"]))
-    
-    # Save absolute path for input folders
+    config["monitor"] = "./tensorboard"
+
+    if config["validation_batch_size"] is None:
+        config["validation_batch_size"] = config["batch_size"]
+
+    if config["problem_type"] == "Segmentation":
+        config["labels"] = tuple(config['labels'].split(','))  # the label numbers on the input image
+        config["n_labels"] = len(config["labels"])
+        config["augment"] = config["flip"] or config["distort"]
+        config["validation_patch_overlap"] = 0  # if > 0, during training, validation patches will be overlapping
+        config["training_patch_start_offset"] = (16, 16, 16)  # randomly offset the first patch index by up to this offset
+        config["skip_blank"] = True
+
+        # Temporarily for now
+        config["pool_size"] = (2, 2, 2)  # pool size for the max pooling operations
+        #config["image_shape"] = (256, 256, 32)  # This determines what shape the images will be cropped/resampled to.
+        config["patch_shape"] = None  # switch to None to train on the whole image None #
+        config["labels"] = (1,)  # the label numbers on the input image
+        config["n_labels"] = len(config["labels"])
+        config["n_base_filters"] = 16
+        config["all_modalities"] = ["T2"]
+        config["training_modalities"] = config["all_modalities"]  # change this if you want to only use some of the modalities
+        config["nb_channels"] = len(config["training_modalities"])
+        if "patch_shape" in config and config["patch_shape"] is not None:
+            config["input_shape"] = tuple([config["nb_channels"]] + list(config["patch_shape"]))
+        else:
+            config["input_shape"] = tuple([config["nb_channels"]] + list(config["image_shape"]))
+        config["truth_channel"] = config["nb_channels"]
+        config["deconvolution"] = True  # if False, will use upsampling instead of deconvolution
+
+        config["batch_size"] = 1
+        config["validation_batch_size"] = 1
+        config["n_epochs"] = 100  # cutoff the training after this many epochs
+        config["patience"] = 5  # learning rate will be reduced after this many epochs if the validation loss is not improving
+        config["early_stop"] = 10  # training will be stopped after this many epochs without the validation loss improving
+        config["initial_learning_rate"] = 0.0005
+        config["learning_rate_drop"] = 0.5  # factor by which the learning rate will be reduced
+        config["validation_split"] = 0.90  # portion of the data that will be used for training
+        config["flip"] = False  # augments the data by randomly flipping an axis during
+        config["permute"] = False  # data shape must be a cube. Augments the data by permuting in various directions
+        config["distort"] = None # switch to None if you want no distortion
+        config["augment"] = config["flip"] or config["distort"]
+        config["validation_patch_overlap"] = 0  # if > 0, during training, validation patches will be overlapping
+        config["training_patch_start_offset"] = (16, 16, 16)  # randomly offset the first patch index by up to this offset
+        config["skip_blank"] = False # if True, then patches without any target will be skipped
+            # Save absolute path for input folders
     
     return config
 
@@ -179,8 +223,10 @@ def main(*arg):
         sys.argv.append(arg[0])
     args = parse_command_line_arguments()
     config = build_config_dict(vars(args))
-    pprint.pprint(config)
-    run_training(config)
+    return config
+    # pprint.pprint(config)
+        
+    # run_training(config)
 
 
 def run_training(config):
@@ -208,12 +254,12 @@ def run_training(config):
     training_file = os.path.abspath(os.path.join(config["data_dir"],config['training_split']))
     validation_file = os.path.abspath(os.path.join(config["data_dir"],config['validation_split']))
     if data_file.__contains__('/truth'): 
-        if config["input_type"] is "Both" and data_file.__contains__('/cldata') and data_file.__contains__('/imdata'):
-            training_list, validation_list =  create_validation_split(config["problem_type"], data_file.root.truth, training_file, validation_file,train_split=0.80,overwrite=0)
-        elif config["input_type"] is "Image" and data_file.__contains__('/imdata'):
-            training_list, validation_list =  create_validation_split(config["problem_type"], data_file.root.truth, training_file, validation_file,train_split=0.80,overwrite=0) 
-        elif config["input_type"] is "Clinical" and data_file.__contains__('/cldata'):
-            training_list, validation_list =  create_validation_split(config["problem_type"], data_file.root.truth, training_file, validation_file,train_split=0.80,overwrite=0) 
+        if config["input_type"] == "Both" and data_file.__contains__('/cldata') and data_file.__contains__('/imdata'):
+            training_list, validation_list = create_validation_split(config["problem_type"], data_file.root.truth, training_file, validation_file,train_split=0.80,overwrite=0)
+        elif config["input_type"] == "Image" and data_file.__contains__('/imdata'):
+            training_list, validation_list = create_validation_split(config["problem_type"], data_file.root.truth, training_file, validation_file, train_split=0.80, overwrite=0) 
+        elif config["input_type"] == "Clinical" and data_file.__contains__('/cldata'):
+            training_list, validation_list = create_validation_split(config["problem_type"], data_file.root.truth, training_file, validation_file,train_split=0.80,overwrite=0) 
         else:
             print('Input Type: ', input_type)
             print('Clincial data: ', data_file.__contains__('/cldata'))
@@ -235,7 +281,7 @@ def run_training(config):
     model1 = None
     classWeight = None
 
-    if problem_type is 'Classification':
+    if problem_type == 'Classification':
         classes = np.unique(data_file.root.truth)
         print(classes)
         classes = [y.decode("utf-8") for y in classes]
@@ -341,17 +387,17 @@ def run_training(config):
             model1 = MLP.build(dim=config['CL_features'],num_outputs=2,branch=False)
             plot_model(model1, to_file="MLP.png", show_shapes=True)
 
-    elif problem_type is 'Segmentation':
-        if input_type is "Image":
-            num_validation_patches,all_patches,validation_list_valid = get_number_of_patches(data_file, validation_list, patch_shape = config["patch_shape"],skip_blank=config["skip_blank"],patch_overlap=config["validation_patch_overlap"])
-            num_training_patches,all_patches,training_list_valid =     get_number_of_patches(data_file, training_list, patch_shape = config["patch_shape"],skip_blank=config["skip_blank"],patch_overlap=config["validation_patch_overlap"])
+    elif problem_type == 'Segmentation':
+        if input_type == "Image":
+            num_validation_patches,all_patches,validation_list_valid = get_number_of_patches(data_file, validation_list, patch_shape = config["patch_shape"],skip_blank=config["skip_blank"],patch_overlap=config["patch_overlap"])
+            num_training_patches,all_patches,training_list_valid =     get_number_of_patches(data_file, training_list, patch_shape = config["patch_shape"],skip_blank=config["skip_blank"],patch_overlap=config["patch_overlap"])
             num_validation_steps = get_number_of_steps(num_validation_patches,config["validation_batch_size"])
             num_training_steps =  get_number_of_steps(num_training_patches, batch_size)
             
             training_generator = DataGenerator_3D_Segmentation(data_file, training_list_valid,
                                         batch_size=config['batch_size'],
                                         n_labels=config['n_labels'],
-                                        labels = labels,
+                                        labels = config['labels'],
                                         augment=config['augment'],
                                         augment_flip=config['flip'],
                                         augment_distortion_factor=config['distort'],
@@ -363,7 +409,7 @@ def run_training(config):
             validation_generator = DataGenerator_3D_Segmentation(data_file, validation_list_valid,
                                         batch_size=config['validation_batch_size'],
                                         n_labels=config['n_labels'],
-                                        labels = labels,
+                                        labels = config['labels'],
                                         augment=config['augment'],
                                         augment_flip=config['flip'],
                                         augment_distortion_factor=config['distort'],
@@ -372,7 +418,9 @@ def run_training(config):
                                         patch_start_offset = 0,
                                         skip_blank=False,
                                         permute=config['permute'],reduce=config['reduce'])
-            model1 = isensee2017_model.build()
+            model1 = isensee2017.build(input_shape=(4, 128, 128, 128), n_base_filters=16, depth=5, dropout_rate=0.3,
+                      n_segmentation_levels=3, n_labels=4)
+            print('isensee model loaded \n',model1.summary())
 
 
 # Step 6: Train model after compiling with problem specific parameters
@@ -421,7 +469,7 @@ def run_training(config):
         lr_scheduler = LearningRateScheduler(partial(step_decay, initial_lrate=learning_rate,
                                                         drop=0.5, epochs_drop=None))
     else:
-        callbacks.append(ReduceLROnPlateau(factor=0.5, patience=30,verbose=1))
+        lr_scheduler = ReduceLROnPlateau(factor=0.5, patience=30,verbose=1)
     
     callbacks = [lr_scheduler,tensorboard,checkpoint,earlystop]
 
@@ -465,7 +513,7 @@ def run_training(config):
     figpath_final = config["input_type"]+'.png'
     plt.savefig(figpath_final)
     plt.show()
-    hdf5_file.close()
+    data_file.close()
 
 
 if __name__ == "__main__":

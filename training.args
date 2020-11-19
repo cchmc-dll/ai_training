@@ -2,7 +2,7 @@
 --input_type=Image
 --data_file=data_32_final.h5
 --batch_size=8
---n_epochs=200
+--n_epochs=10
 --training_model=ls_isensee
 --data_dir=./data
 --training_split=train_fold_1_417.pkl
