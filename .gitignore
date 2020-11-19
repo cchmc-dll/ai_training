@@ -6,3 +6,6 @@ output/
 
 #Ignore .txt files
 *.txt
+
+# Ignroe vs workspace
+*.code-workspace
